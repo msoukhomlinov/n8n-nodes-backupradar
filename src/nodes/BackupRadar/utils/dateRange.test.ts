@@ -89,3 +89,51 @@ describe('resolveDateRange — dateRange', () => {
     expect(r.totalDays).toBe(0);
   });
 });
+
+import { chunkDateRange } from './dateRange.js';
+
+describe('chunkDateRange', () => {
+  it('undefined startDate → single chunk, no date param', () => {
+    const chunks = chunkDateRange(undefined, NOW, 7);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toEqual({ date: undefined, historyDays: 7 });
+  });
+
+  it('undefined startDate, totalDays 0 → single chunk historyDays 0', () => {
+    const chunks = chunkDateRange(undefined, NOW, 0);
+    expect(chunks).toEqual([{ date: undefined, historyDays: 0 }]);
+  });
+
+  it('31-day date range → 1 chunk', () => {
+    const start = new Date('2026-04-05T00:00:00.000Z');
+    const end = new Date('2026-05-06T00:00:00.000Z');
+    const chunks = chunkDateRange(start, end, 31);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toEqual({ date: '2026-04-05', historyDays: 31 });
+  });
+
+  it('45-day range → 2 chunks', () => {
+    const start = new Date('2026-03-22T00:00:00.000Z');
+    const end = new Date('2026-05-06T00:00:00.000Z');
+    const chunks = chunkDateRange(start, end, 45);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]).toEqual({ date: '2026-03-22', historyDays: 31 });
+    expect(chunks[1]).toEqual({ date: '2026-04-22', historyDays: 14 });
+  });
+
+  it('90-day range → 3 chunks', () => {
+    const start = new Date('2026-02-05T00:00:00.000Z');
+    const end = new Date('2026-05-06T00:00:00.000Z');
+    const chunks = chunkDateRange(start, end, 90);
+    expect(chunks).toHaveLength(3);
+    expect(chunks[0]).toEqual({ date: '2026-02-05', historyDays: 31 });
+    expect(chunks[1]).toEqual({ date: '2026-03-08', historyDays: 31 });
+    expect(chunks[2]).toEqual({ date: '2026-04-08', historyDays: 28 });
+  });
+
+  it('same start/end → single chunk historyDays 0', () => {
+    const d = new Date('2026-05-06T00:00:00.000Z');
+    const chunks = chunkDateRange(d, d, 0);
+    expect(chunks).toEqual([{ date: '2026-05-06', historyDays: 0 }]);
+  });
+});

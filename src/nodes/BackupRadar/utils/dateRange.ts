@@ -79,3 +79,27 @@ export function resolveDateRange(
   const totalDays = Math.max(0, Math.ceil((endDate.getTime() - startDate.getTime()) / DAY_MS));
   return { startDate, endDate, totalDays };
 }
+
+export function chunkDateRange(
+  startDate: Date | undefined,
+  endDate: Date,
+  totalDays: number,
+): DateChunk[] {
+  if (startDate === undefined) {
+    return [{ date: undefined, historyDays: totalDays }];
+  }
+
+  const chunks: DateChunk[] = [];
+  let current = new Date(startDate);
+
+  while (current < endDate) {
+    const remainingDays = Math.ceil((endDate.getTime() - current.getTime()) / DAY_MS);
+    const historyDays = Math.min(remainingDays, 31);
+    chunks.push({ date: current.toISOString().split('T')[0], historyDays });
+    current = new Date(current.getTime() + historyDays * DAY_MS);
+  }
+
+  return chunks.length > 0
+    ? chunks
+    : [{ date: startDate.toISOString().split('T')[0], historyDays: 0 }];
+}
