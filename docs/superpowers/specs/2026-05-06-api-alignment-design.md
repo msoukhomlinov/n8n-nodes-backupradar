@@ -25,9 +25,9 @@ Remove the `getBackupsBrightGauge` operation entirely. No deprecation shim, no e
 
 | File | Change |
 |---|---|
-| `src/nodes/BackupRadar/description/index.ts` | Remove import and re-export of `getBackupsBrightGauge` |
-| `src/nodes/BackupRadar/BackupRadar.node.ts` | Remove operation from dropdown options; remove execution branch |
-| `package.json` | Bump patch version |
+| `src/nodes/BackupRadar/description/index.ts` | Remove import block for `getBackupsBrightGaugeOperationOption` and `getBackupsBrightGaugeOperationFields`; remove both inline array references (`options` entry and `...getBackupsBrightGaugeOperationFields` spread) |
+| `src/nodes/BackupRadar/BackupRadar.node.ts` | Remove operation from dropdown options; remove `case 'getBackupsBrightGauge'` execution branch |
+| `package.json` | Bump to `2.0.0` — removing a public operation is a breaking change per semver |
 
 ## Out of Scope
 
