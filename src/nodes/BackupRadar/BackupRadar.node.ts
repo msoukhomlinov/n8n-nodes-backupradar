@@ -218,7 +218,7 @@ export class BackupRadar implements INodeType {
 
               const deduped = new Map<unknown, IDataObject>();
               for (const item of allResults) {
-                deduped.set(item.Id, item);
+                deduped.set(item.backupId, item);
               }
               const results = Array.from(deduped.values());
 
@@ -251,7 +251,7 @@ export class BackupRadar implements INodeType {
 
                   if (pageResponse && 'Results' in pageResponse && Array.isArray(pageResponse.Results)) {
                     for (const item of pageResponse.Results as IDataObject[]) {
-                      deduped.set(item.Id, item);
+                      deduped.set(item.backupId, item);
                     }
                     totalPages = (pageResponse.TotalPages as number) || 1;
                     currentPage++;
