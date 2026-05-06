@@ -71,7 +71,7 @@ export async function executeGetBackups(
 
   const returnAll = ctx.getNodeParameter('returnAll', itemIndex, true);
   const limit: number | null = returnAll ? null : ctx.getNodeParameter('limit', itemIndex, 50);
-  const pageSize = limit !== null ? Math.min(limit, 1000) : 1000;
+  const pageSize = limit !== null ? Math.max(1, Math.min(limit, 1000)) : 1000;
 
   const deduped = new Map<unknown, IDataObject>();
 
@@ -90,10 +90,12 @@ export async function executeGetBackups(
 
       if (pageResponse && 'Results' in pageResponse && Array.isArray(pageResponse.Results)) {
         for (const item of pageResponse.Results as IDataObject[]) {
-          if (deduped.has(item.backupId)) {
-            deduped.set(item.backupId, mergeBackupHistory(deduped.get(item.backupId)!, item));
+          const id = item.backupId;
+          if (id === undefined || id === null) continue;
+          if (deduped.has(id)) {
+            deduped.set(id, mergeBackupHistory(deduped.get(id)!, item));
           } else if (limit === null || deduped.size < limit) {
-            deduped.set(item.backupId, item);
+            deduped.set(id, item);
           }
         }
         totalPages = (pageResponse.TotalPages as number) || 1;

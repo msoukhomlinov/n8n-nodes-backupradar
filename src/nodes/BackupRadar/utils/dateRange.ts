@@ -56,6 +56,36 @@ export interface DateChunk {
   historyDays: number;
 }
 
+// Format a Date as YYYY-MM-DD using local time components.
+function toLocalDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Compute calendar-day difference using UTC projections of local date components.
+// Avoids DST skew that occurs when subtracting raw timestamps across a DST boundary.
+function localDaysBetween(start: Date, end: Date): number {
+  const a = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const b = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  return Math.round((b - a) / DAY_MS);
+}
+
+// Advance a date by N calendar days without DST skew.
+function addLocalDays(date: Date, days: number): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+// Extract the calendar Y-M-D from an ISO-8601 string before the T, then
+// construct a local-midnight Date. Preserves the user's intended calendar
+// date regardless of server timezone or any UTC offset in the ISO string.
+function parseLocalDate(iso: string): Date {
+  const datePart = iso.split('T')[0];
+  const [year, month, day] = datePart.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 export function resolveDateRange(
   mode: string,
   params: DateRangeParams,
@@ -64,29 +94,36 @@ export function resolveDateRange(
   if (mode === 'preset') {
     const days = PRESET_MAP[params.preset ?? 'today'] ?? 0;
     if (days <= 31) return { startDate: undefined, endDate: now, totalDays: days };
-    return { startDate: new Date(now.getTime() - days * DAY_MS), endDate: now, totalDays: days };
+    const startDate = addLocalDays(now, -days);
+    return { startDate, endDate: now, totalDays: days };
   }
 
   if (mode === 'daysBack') {
     const days = params.daysBack ?? 0;
     if (days <= 31) return { startDate: undefined, endDate: now, totalDays: days };
-    return { startDate: new Date(now.getTime() - days * DAY_MS), endDate: now, totalDays: days };
+    const startDate = addLocalDays(now, -days);
+    return { startDate, endDate: now, totalDays: days };
   }
 
   // dateRange
-  const startDate = new Date(params.dateFrom!);
-  const endDate = params.dateTo ? new Date(params.dateTo) : now;
-  const totalDays = Math.max(0, Math.ceil((endDate.getTime() - startDate.getTime()) / DAY_MS));
+  if (!params.dateFrom) {
+    throw new Error('dateFrom is required when dateRangeMode is "dateRange"');
+  }
+  const startDate = parseLocalDate(params.dateFrom);
+  if (Number.isNaN(startDate.getTime())) {
+    throw new Error(`Invalid dateFrom value: "${params.dateFrom}"`);
+  }
+  const endDate = params.dateTo ? parseLocalDate(params.dateTo) : now;
+  if (localDaysBetween(startDate, endDate) < 0) {
+    throw new Error('dateFrom must not be after dateTo');
+  }
+  const totalDays = localDaysBetween(startDate, endDate);
   return { startDate, endDate, totalDays };
 }
 
-function toLocalDateString(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
+// totalDays is authoritative only when startDate is undefined (preset/daysBack ≤ 31 day
+// relative modes). When startDate is defined, chunks are computed entirely from
+// startDate/endDate; totalDays is ignored beyond the undefined fast-path.
 export function chunkDateRange(
   startDate: Date | undefined,
   endDate: Date,
@@ -99,11 +136,11 @@ export function chunkDateRange(
   const chunks: DateChunk[] = [];
   let current = new Date(startDate);
 
-  while (current < endDate) {
-    const remainingDays = Math.ceil((endDate.getTime() - current.getTime()) / DAY_MS);
+  while (localDaysBetween(current, endDate) > 0) {
+    const remainingDays = localDaysBetween(current, endDate);
     const historyDays = Math.min(remainingDays, 31);
     chunks.push({ date: toLocalDateString(current), historyDays });
-    current = new Date(current.getTime() + historyDays * DAY_MS);
+    current = addLocalDays(current, historyDays);
   }
 
   return chunks.length > 0

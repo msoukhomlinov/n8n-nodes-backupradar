@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { PRESET_MAP, resolveDateRange } from './dateRange.js';
+import { PRESET_MAP, resolveDateRange, chunkDateRange } from './dateRange.js';
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 describe('PRESET_MAP', () => {
   it('contains 35 entries', () => {
@@ -39,14 +43,14 @@ describe('resolveDateRange — preset', () => {
     const r = resolveDateRange('preset', { preset: 'last-45-days' }, NOW);
     expect(r.startDate).toBeDefined();
     expect(r.totalDays).toBe(45);
-    expect(r.startDate!.toISOString().split('T')[0]).toBe('2026-03-22');
+    expect(localDateStr(r.startDate!)).toBe('2026-03-22');
   });
 
   it('last-90-days → startDate 2026-02-05, totalDays 90', () => {
     const r = resolveDateRange('preset', { preset: 'last-90-days' }, NOW);
     expect(r.startDate).toBeDefined();
     expect(r.totalDays).toBe(90);
-    expect(r.startDate!.toISOString().split('T')[0]).toBe('2026-02-05');
+    expect(localDateStr(r.startDate!)).toBe('2026-02-05');
   });
 });
 
@@ -67,15 +71,22 @@ describe('resolveDateRange — daysBack', () => {
     const r = resolveDateRange('daysBack', { daysBack: 60 }, NOW);
     expect(r.startDate).toBeDefined();
     expect(r.totalDays).toBe(60);
-    expect(r.startDate!.toISOString().split('T')[0]).toBe('2026-03-07');
+    expect(localDateStr(r.startDate!)).toBe('2026-03-07');
   });
 });
 
 describe('resolveDateRange — dateRange', () => {
   it('explicit from/to → correct totalDays', () => {
-    const r = resolveDateRange('dateRange', { dateFrom: '2026-04-01', dateTo: '2026-05-01' }, NOW);
-    expect(r.startDate!.toISOString().split('T')[0]).toBe('2026-04-01');
+    const r = resolveDateRange('dateRange', { dateFrom: '2026-04-06', dateTo: '2026-05-06' }, NOW);
+    expect(localDateStr(r.startDate!)).toBe('2026-04-06');
     expect(r.totalDays).toBe(30);
+  });
+
+  it('ISO string with offset uses calendar date, not UTC offset', () => {
+    // 2026-04-01T00:00:00+10:00 = 2026-03-31T14:00:00Z; should still be treated as April 1
+    const r = resolveDateRange('dateRange', { dateFrom: '2026-04-01T00:00:00+10:00', dateTo: '2026-05-01T00:00:00+10:00' }, NOW);
+    expect(localDateStr(r.startDate!)).toBe('2026-04-01');
+    expect(localDateStr(r.endDate)).toBe('2026-05-01');
   });
 
   it('omitted dateTo defaults to now', () => {
@@ -88,9 +99,21 @@ describe('resolveDateRange — dateRange', () => {
     const r = resolveDateRange('dateRange', { dateFrom: '2026-05-06', dateTo: '2026-05-06' }, NOW);
     expect(r.totalDays).toBe(0);
   });
-});
 
-import { chunkDateRange } from './dateRange.js';
+  it('throws when dateFrom is empty', () => {
+    expect(() => resolveDateRange('dateRange', { dateFrom: '' }, NOW)).toThrow('dateFrom is required');
+  });
+
+  it('throws when dateFrom is missing', () => {
+    expect(() => resolveDateRange('dateRange', {}, NOW)).toThrow('dateFrom is required');
+  });
+
+  it('throws when dateFrom is after dateTo', () => {
+    expect(() =>
+      resolveDateRange('dateRange', { dateFrom: '2026-05-10', dateTo: '2026-05-01' }, NOW),
+    ).toThrow('dateFrom must not be after dateTo');
+  });
+});
 
 describe('chunkDateRange', () => {
   it('undefined startDate → single chunk, no date param', () => {
@@ -105,11 +128,21 @@ describe('chunkDateRange', () => {
   });
 
   it('31-day date range → 1 chunk', () => {
-    const start = new Date('2026-04-05T00:00:00.000Z');
-    const end = new Date('2026-05-06T00:00:00.000Z');
+    const start = new Date(2026, 2, 6); // 2026-03-06 local
+    const end = new Date(2026, 3, 6);   // 2026-04-06 local
     const chunks = chunkDateRange(start, end, 31);
     expect(chunks).toHaveLength(1);
-    expect(chunks[0]).toEqual({ date: '2026-04-05', historyDays: 31 });
+    expect(chunks[0].historyDays).toBe(31);
+    expect(localDateStr(start)).toBe(chunks[0].date);
+  });
+
+  it('32-day range → 2 chunks (boundary just over 31-day cap)', () => {
+    const start = new Date(2026, 2, 5); // 2026-03-05 local
+    const end = new Date(2026, 3, 6);   // 2026-04-06 local (32 days later)
+    const chunks = chunkDateRange(start, end, 32);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].historyDays).toBe(31);
+    expect(chunks[1].historyDays).toBe(1);
   });
 
   it('45-day range → 2 chunks', () => {
