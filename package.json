@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-backupradar",
-  "version": "3.0.0",
+  "version": "3.0.2",
   "description": "BackupRadar integration for n8n community node.",
   "author": "Max Soukhomlinov <maxs@intellectit.com.au>",
   "license": "Apache-2.0",
@@ -42,7 +42,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run build"
   },
-  "dependencies": {
+  "peerDependencies": {
     "n8n-core": "^1.41.0",
     "n8n-workflow": "^1.41.0"
   },

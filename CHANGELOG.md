@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project adheres to Semantic Versioning.
 
+## [3.0.2] - 2026-05-06
+
+### Performance
+- Reduced inter-page delay from 500ms to 150ms across all paginated operations
+- Removed redundant inter-chunk delay in `getBackups`
+- Added automatic 429 retry with linear backoff (up to 3 attempts) in HTTP transport
+
+## [3.0.1] - 2026-05-06
+
+### Fixed
+- Moved `n8n-workflow` and `n8n-core` from `dependencies` to `peerDependencies`; prevents nested `node_modules` install failure on community node load
+
 ## [3.0.0] - 2026-05-06
 
 ### Changed (Breaking)

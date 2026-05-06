@@ -8,10 +8,9 @@ import type {
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
-/**
- * Generic HTTP request helper for the BackupRadar node.
- * Uses n8n's authenticated HTTP helper with ApiKey header authentication.
- */
+const MAX_RETRIES = 3;
+const RATE_LIMIT_BACKOFF_MS = 5000;
+
 export async function requestBackupRadar(
   this: IExecuteFunctions | ILoadOptionsFunctions,
   method: HttpMethod,
@@ -26,11 +25,9 @@ export async function requestBackupRadar(
     headers?: IDataObject;
   } = {},
 ): Promise<JsonObject> {
-  // Get base URL from credentials
   const credentials = await this.getCredentials('backupRadarApi');
   const baseUrl = (credentials?.baseUrl as string) || 'https://api.backupradar.com';
 
-  // Construct full URL
   const url = endpoint.startsWith('http')
     ? endpoint
     : `${baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
@@ -45,11 +42,24 @@ export async function requestBackupRadar(
     json: true,
   };
 
-  // Use authenticated helper which will add ApiKey header via credentials
-  // n8n's requestWithAuthentication will handle errors appropriately
-  return (await this.helpers.requestWithAuthentication.call(
-    this,
-    'backupRadarApi',
-    options,
-  )) as JsonObject;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return (await this.helpers.requestWithAuthentication.call(
+        this,
+        'backupRadarApi',
+        options,
+      )) as JsonObject;
+    } catch (err) {
+      const status = (err as { statusCode?: number; response?: { statusCode?: number } })
+        ?.statusCode ?? (err as { response?: { statusCode?: number } })?.response?.statusCode;
+      if (status === 429 && attempt < MAX_RETRIES - 1) {
+        await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS * (attempt + 1)));
+        lastError = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
 }

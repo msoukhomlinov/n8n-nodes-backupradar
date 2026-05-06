@@ -107,16 +107,12 @@ export async function executeGetBackups(
         // Use returnAll=true for fully-merged history across all pages.
         if (limit !== null && deduped.size >= limit) break;
         if (currentPage <= totalPages) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 150));
         }
       } else {
         break;
       }
     } while (currentPage <= totalPages);
-
-    if (chunkIndex < chunks.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
   }
 
   const results = limit !== null
