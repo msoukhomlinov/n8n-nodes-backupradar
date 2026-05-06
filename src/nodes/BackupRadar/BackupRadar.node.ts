@@ -230,7 +230,7 @@ export class BackupRadar implements INodeType {
                 Results: results,
               };
             } else {
-              const limit = this.getNodeParameter('limit', itemIndex, 50) as number;
+              const limit = this.getNodeParameter('limit', itemIndex, 50);
               const allResults: IDataObject[] = [];
 
               for (let chunkIndex = 0; chunkIndex < chunks.length && allResults.length < limit; chunkIndex++) {

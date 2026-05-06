@@ -298,6 +298,7 @@ export const getBackupsOperationFields: INodeProperties[] = [
     name: 'dateFrom',
     type: 'dateTime',
     default: '',
+    required: true,
     description: 'Start date for backup history range',
     displayOptions: {
       show: { operation: ['getBackups'], dateRangeMode: ['dateRange'] },
