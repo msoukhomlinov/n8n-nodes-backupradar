@@ -9,21 +9,9 @@ import { NodeApiError } from 'n8n-workflow';
 import { backupRadarNodeProperties } from './index.js';
 import * as loadOptions from './utils/loadOptions/index.js';
 import { requestBackupRadar } from './lib/transport.js';
-import {
-  type DateRangeParams,
-  resolveDateRange,
-  chunkDateRange,
-} from './utils/dateRange.js';
-
-function mergeBackupHistory(existing: IDataObject, incoming: IDataObject): IDataObject {
-  const existingHistory = Array.isArray(existing.history) ? (existing.history as IDataObject[]) : [];
-  const incomingHistory = Array.isArray(incoming.history) ? (incoming.history as IDataObject[]) : [];
-  const historyByDate = new Map<unknown, IDataObject>();
-  for (const entry of [...existingHistory, ...incomingHistory]) {
-    historyByDate.set(entry.date, entry);
-  }
-  return { ...incoming, history: Array.from(historyByDate.values()) };
-}
+import { executeGetBackups } from './operations/getBackups.js';
+import { executeGetInactiveBackups } from './operations/getInactiveBackups.js';
+import { executeGetRetiredBackups } from './operations/getRetiredBackups.js';
 
 export class BackupRadar implements INodeType {
   description: INodeTypeDescription = {
@@ -69,190 +57,15 @@ export class BackupRadar implements INodeType {
         let response: IDataObject;
 
         switch (operation) {
-          case 'getBackups': {
-            const baseQs: IDataObject = {};
-
-            // Search options - only include non-empty strings
-            const searchOptions = this.getNodeParameter(
-              'searchOptions',
-              itemIndex,
-              {},
-            ) as IDataObject;
-            for (const [key, value] of Object.entries(searchOptions)) {
-              if (value !== undefined && value !== null && value !== '') {
-                baseQs[key] = value;
-              }
-            }
-
-            // Filter options
-            const filterOptions = this.getNodeParameter(
-              'filterOptions',
-              itemIndex,
-              {},
-            ) as IDataObject;
-            if (
-              filterOptions.backupMethods &&
-              Array.isArray(filterOptions.backupMethods) &&
-              filterOptions.backupMethods.length > 0
-            ) {
-              baseQs.backupMethods = filterOptions.backupMethods;
-            }
-            if (
-              filterOptions.companies &&
-              Array.isArray(filterOptions.companies) &&
-              filterOptions.companies.length > 0
-            ) {
-              baseQs.companies = filterOptions.companies;
-            }
-            if (
-              filterOptions.DaysWithoutSuccess !== undefined &&
-              filterOptions.DaysWithoutSuccess !== null
-            ) {
-              baseQs.DaysWithoutSuccess = filterOptions.DaysWithoutSuccess;
-            }
-            if (
-              filterOptions.deviceTypes &&
-              Array.isArray(filterOptions.deviceTypes) &&
-              filterOptions.deviceTypes.length > 0
-            ) {
-              baseQs.deviceTypes = filterOptions.deviceTypes;
-            }
-            if (
-              filterOptions.excludeBackupMethods &&
-              Array.isArray(filterOptions.excludeBackupMethods) &&
-              filterOptions.excludeBackupMethods.length > 0
-            ) {
-              baseQs.excludeBackupMethods = filterOptions.excludeBackupMethods;
-            }
-            if (
-              filterOptions.excludeDeviceTypes &&
-              Array.isArray(filterOptions.excludeDeviceTypes) &&
-              filterOptions.excludeDeviceTypes.length > 0
-            ) {
-              baseQs.excludeDeviceTypes = filterOptions.excludeDeviceTypes;
-            }
-            if (
-              filterOptions.excludeTags &&
-              Array.isArray(filterOptions.excludeTags) &&
-              filterOptions.excludeTags.length > 0
-            ) {
-              baseQs.excludeTags = filterOptions.excludeTags;
-            }
-            if (filterOptions.FilterScheduled !== undefined) {
-              baseQs.FilterScheduled = filterOptions.FilterScheduled;
-            }
-            if (
-              filterOptions.policyIds &&
-              typeof filterOptions.policyIds === 'string' &&
-              filterOptions.policyIds.trim()
-            ) {
-              baseQs.policyIds = filterOptions.policyIds
-                .split(',')
-                .map((id: string) => id.trim())
-                .filter((id: string) => id);
-            }
-            if (
-              filterOptions.policyTypes &&
-              Array.isArray(filterOptions.policyTypes) &&
-              filterOptions.policyTypes.length > 0
-            ) {
-              baseQs.policyTypes = filterOptions.policyTypes;
-            }
-            if (
-              filterOptions.statuses &&
-              Array.isArray(filterOptions.statuses) &&
-              filterOptions.statuses.length > 0
-            ) {
-              baseQs.statuses = filterOptions.statuses;
-            }
-            if (
-              filterOptions.tags &&
-              Array.isArray(filterOptions.tags) &&
-              filterOptions.tags.length > 0
-            ) {
-              baseQs.tags = filterOptions.tags;
-            }
-
-            // Date range
-            const dateRangeMode = this.getNodeParameter('dateRangeMode', itemIndex, 'preset') as string;
-            const dateRangeParams: DateRangeParams = {};
-            if (dateRangeMode === 'preset') {
-              dateRangeParams.preset = this.getNodeParameter('presetRange', itemIndex, 'today') as string;
-            } else if (dateRangeMode === 'daysBack') {
-              dateRangeParams.daysBack = this.getNodeParameter('daysBack', itemIndex, 0) as number;
-            } else {
-              dateRangeParams.dateFrom = this.getNodeParameter('dateFrom', itemIndex, '') as string;
-              const dateTo = this.getNodeParameter('dateTo', itemIndex, '') as string;
-              if (dateTo) dateRangeParams.dateTo = dateTo;
-            }
-            const { startDate, endDate, totalDays } = resolveDateRange(dateRangeMode, dateRangeParams);
-            const chunks = chunkDateRange(startDate, endDate, totalDays);
-
-            // Pagination with chunk iteration
-            const returnAll = this.getNodeParameter('returnAll', itemIndex, true);
-
-            const deduped = new Map<unknown, IDataObject>();
-            const limit = returnAll ? null : this.getNodeParameter('limit', itemIndex, 50);
-            const pageSize = limit !== null ? Math.min(limit, 1000) : 1000;
-
-            for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-              const chunk = chunks[chunkIndex];
-              const chunkQs = { ...baseQs };
-              if (chunk.date !== undefined) chunkQs.date = chunk.date;
-              chunkQs.HistoryDays = chunk.historyDays;
-
-              let currentPage = 1;
-              let totalPages = 1;
-
-              do {
-                const qs = { ...chunkQs, Page: currentPage, Size: pageSize };
-                const pageResponse = (await requestBackupRadar.call(this, 'GET', '/backups', {
-                  qs,
-                })) as IDataObject;
-
-                if (pageResponse && 'Results' in pageResponse && Array.isArray(pageResponse.Results)) {
-                  for (const item of pageResponse.Results as IDataObject[]) {
-                    if (deduped.has(item.backupId)) {
-                      deduped.set(item.backupId, mergeBackupHistory(deduped.get(item.backupId)!, item));
-                    } else if (limit === null || deduped.size < limit) {
-                      deduped.set(item.backupId, item);
-                    }
-                  }
-                  totalPages = (pageResponse.TotalPages as number) || 1;
-                  currentPage++;
-                  if (currentPage <= totalPages) {
-                    await new Promise((resolve) => setTimeout(resolve, 500));
-                  }
-                } else {
-                  break;
-                }
-              } while (currentPage <= totalPages);
-
-              if (chunkIndex < chunks.length - 1) {
-                await new Promise((resolve) => setTimeout(resolve, 500));
-              }
-            }
-
-            const results = limit !== null
-              ? Array.from(deduped.values()).slice(0, limit)
-              : Array.from(deduped.values());
-
-            response = {
-              Total: results.length,
-              Page: 1,
-              PageSize: results.length,
-              TotalPages: 1,
-              Results: results,
-            };
+          case 'getBackups':
+            response = await executeGetBackups(this, itemIndex);
             break;
-          }
 
           case 'getBackup': {
             const backupId = this.getNodeParameter('backupId', itemIndex) as number;
             const qs: IDataObject = {};
             const date = this.getNodeParameter('date', itemIndex, '') as string;
             if (date && date.trim()) qs.date = date;
-
             response = await requestBackupRadar.call(this, 'GET', `/backups/${backupId}`, { qs });
             break;
           }
@@ -262,179 +75,25 @@ export class BackupRadar implements INodeType {
             const qs: IDataObject = {};
             const date = this.getNodeParameter('date', itemIndex, '') as string;
             if (date && date.trim()) qs.date = date;
-
-            response = await requestBackupRadar.call(this, 'GET', `/backups/${backupId}/results`, {
-              qs,
-            });
+            response = await requestBackupRadar.call(this, 'GET', `/backups/${backupId}/results`, { qs });
             break;
           }
 
-          case 'getFilters': {
+          case 'getFilters':
             response = await requestBackupRadar.call(this, 'GET', '/backups/filters');
             break;
-          }
 
-          case 'getInactiveBackups': {
-            const baseQs: IDataObject = {};
-            const searchOptions = this.getNodeParameter(
-              'searchOptions',
-              itemIndex,
-              {},
-            ) as IDataObject;
-            // Only include non-empty string values
-            for (const [key, value] of Object.entries(searchOptions)) {
-              if (value !== undefined && value !== null && value !== '') {
-                baseQs[key] = value;
-              }
-            }
-
-            // Pagination
-            const returnAll = this.getNodeParameter('returnAll', itemIndex, true);
-            if (returnAll) {
-              // Fetch all pages
-              const allResults: IDataObject[] = [];
-              let currentPage = 1;
-              const pageSize = 1000; // Max page size for efficiency
-              let totalPages = 1;
-              let totalCount = 0;
-
-              do {
-                const qs = { ...baseQs, Page: currentPage, Size: pageSize };
-                const pageResponse = (await requestBackupRadar.call(
-                  this,
-                  'GET',
-                  '/backups/inactive',
-                  { qs },
-                )) as IDataObject;
-
-                if (
-                  pageResponse &&
-                  'Results' in pageResponse &&
-                  Array.isArray(pageResponse.Results)
-                ) {
-                  allResults.push(...(pageResponse.Results as IDataObject[]));
-                  totalPages = (pageResponse.TotalPages as number) || 1;
-                  if (currentPage === 1) {
-                    totalCount = (pageResponse.Total as number) || allResults.length;
-                  }
-                  currentPage++;
-
-                  // Respect API rate limiting: 1 request per 0.5 seconds
-                  if (currentPage <= totalPages) {
-                    await new Promise((resolve) => setTimeout(resolve, 500));
-                  }
-                } else {
-                  break;
-                }
-              } while (currentPage <= totalPages);
-
-              // Create a response object with all results
-              response = {
-                Total: totalCount,
-                Page: 1,
-                PageSize: allResults.length,
-                TotalPages: 1,
-                Results: allResults,
-              };
-            } else {
-              // Fetch single page
-              const limit = this.getNodeParameter('limit', itemIndex, 50);
-              const qs = { ...baseQs, Page: 1, Size: limit };
-              response = await requestBackupRadar.call(this, 'GET', '/backups/inactive', { qs });
-            }
+          case 'getInactiveBackups':
+            response = await executeGetInactiveBackups(this, itemIndex);
             break;
-          }
 
-          case 'getRetiredBackups': {
-            const baseQs: IDataObject = {};
-            const searchOptions = this.getNodeParameter(
-              'searchOptions',
-              itemIndex,
-              {},
-            ) as IDataObject;
-            // Only include non-empty string values
-            for (const [key, value] of Object.entries(searchOptions)) {
-              if (value !== undefined && value !== null && value !== '') {
-                baseQs[key] = value;
-              }
-            }
-
-            const retiredDateStart = this.getNodeParameter(
-              'SearchByRetiredDateStart',
-              itemIndex,
-              '',
-            ) as string;
-            const retiredDateEnd = this.getNodeParameter(
-              'SearchByRetiredDateEnd',
-              itemIndex,
-              '',
-            ) as string;
-            if (retiredDateStart && retiredDateStart.trim())
-              baseQs.SearchByRetiredDateStart = retiredDateStart;
-            if (retiredDateEnd && retiredDateEnd.trim())
-              baseQs.SearchByRetiredDateEnd = retiredDateEnd;
-
-            // Pagination
-            const returnAll = this.getNodeParameter('returnAll', itemIndex, true);
-            if (returnAll) {
-              // Fetch all pages
-              const allResults: IDataObject[] = [];
-              let currentPage = 1;
-              const pageSize = 1000; // Max page size for efficiency
-              let totalPages = 1;
-              let totalCount = 0;
-
-              do {
-                const qs = { ...baseQs, Page: currentPage, Size: pageSize };
-                const pageResponse = (await requestBackupRadar.call(
-                  this,
-                  'GET',
-                  '/backups/retired',
-                  { qs },
-                )) as IDataObject;
-
-                if (
-                  pageResponse &&
-                  'Results' in pageResponse &&
-                  Array.isArray(pageResponse.Results)
-                ) {
-                  allResults.push(...(pageResponse.Results as IDataObject[]));
-                  totalPages = (pageResponse.TotalPages as number) || 1;
-                  if (currentPage === 1) {
-                    totalCount = (pageResponse.Total as number) || allResults.length;
-                  }
-                  currentPage++;
-
-                  // Respect API rate limiting: 1 request per 0.5 seconds
-                  if (currentPage <= totalPages) {
-                    await new Promise((resolve) => setTimeout(resolve, 500));
-                  }
-                } else {
-                  break;
-                }
-              } while (currentPage <= totalPages);
-
-              // Create a response object with all results
-              response = {
-                Total: totalCount,
-                Page: 1,
-                PageSize: allResults.length,
-                TotalPages: 1,
-                Results: allResults,
-              };
-            } else {
-              // Fetch single page
-              const limit = this.getNodeParameter('limit', itemIndex, 50);
-              const qs = { ...baseQs, Page: 1, Size: limit };
-              response = await requestBackupRadar.call(this, 'GET', '/backups/retired', { qs });
-            }
+          case 'getRetiredBackups':
+            response = await executeGetRetiredBackups(this, itemIndex);
             break;
-          }
 
-          case 'getOverview': {
+          case 'getOverview':
             response = await requestBackupRadar.call(this, 'GET', '/backups/overview');
             break;
-          }
 
           default:
             throw new NodeApiError(this.getNode(), {
@@ -442,7 +101,6 @@ export class BackupRadar implements INodeType {
             });
         }
 
-        // Handle paginated responses - return Results array if present, otherwise return full response
         if (response && 'Results' in response && Array.isArray(response.Results)) {
           const results = response.Results as IDataObject[];
           for (const result of results) {
@@ -463,10 +121,7 @@ export class BackupRadar implements INodeType {
             returnData.push(returnItem);
           }
         } else {
-          // Single object response
-          const returnItem: INodeExecutionData = {
-            json: response,
-          };
+          const returnItem: INodeExecutionData = { json: response };
           if (items[itemIndex].binary) {
             returnItem.binary = items[itemIndex].binary;
           }
@@ -475,9 +130,7 @@ export class BackupRadar implements INodeType {
       } catch (error) {
         if (this.continueOnFail()) {
           returnData.push({
-            json: {
-              error: error instanceof Error ? error.message : String(error),
-            },
+            json: { error: error instanceof Error ? error.message : String(error) },
           });
           continue;
         }
