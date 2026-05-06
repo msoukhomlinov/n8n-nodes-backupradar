@@ -114,6 +114,9 @@ export function resolveDateRange(
     throw new Error(`Invalid dateFrom value: "${params.dateFrom}"`);
   }
   const endDate = params.dateTo ? parseLocalDate(params.dateTo) : now;
+  if (params.dateTo && Number.isNaN(endDate.getTime())) {
+    throw new Error(`Invalid dateTo value: "${params.dateTo}"`);
+  }
   if (localDaysBetween(startDate, endDate) < 0) {
     throw new Error('dateFrom must not be after dateTo');
   }

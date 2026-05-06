@@ -113,6 +113,12 @@ describe('resolveDateRange — dateRange', () => {
       resolveDateRange('dateRange', { dateFrom: '2026-05-10', dateTo: '2026-05-01' }, NOW),
     ).toThrow('dateFrom must not be after dateTo');
   });
+
+  it('throws when dateTo is invalid', () => {
+    expect(() =>
+      resolveDateRange('dateRange', { dateFrom: '2026-04-01', dateTo: 'not-a-date' }, NOW),
+    ).toThrow('Invalid dateTo value');
+  });
 });
 
 describe('chunkDateRange', () => {
