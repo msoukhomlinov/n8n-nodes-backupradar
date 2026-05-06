@@ -9,6 +9,11 @@ import { NodeApiError } from 'n8n-workflow';
 import { backupRadarNodeProperties } from './index.js';
 import * as loadOptions from './utils/loadOptions/index.js';
 import { requestBackupRadar } from './lib/transport.js';
+import {
+  type DateRangeParams,
+  resolveDateRange,
+  chunkDateRange,
+} from './utils/dateRange.js';
 
 export class BackupRadar implements INodeType {
   description: INodeTypeDescription = {
@@ -158,63 +163,123 @@ export class BackupRadar implements INodeType {
               baseQs.tags = filterOptions.tags;
             }
 
-            // History and date
-            const historyDays = this.getNodeParameter('HistoryDays', itemIndex) as number;
-            if (historyDays !== undefined && historyDays !== null) baseQs.HistoryDays = historyDays;
+            // Date range
+            const dateRangeMode = this.getNodeParameter('dateRangeMode', itemIndex, 'preset') as string;
+            const dateRangeParams: DateRangeParams = {};
+            if (dateRangeMode === 'preset') {
+              dateRangeParams.preset = this.getNodeParameter('presetRange', itemIndex, 'today') as string;
+            } else if (dateRangeMode === 'daysBack') {
+              dateRangeParams.daysBack = this.getNodeParameter('daysBack', itemIndex, 0) as number;
+            } else {
+              dateRangeParams.dateFrom = this.getNodeParameter('dateFrom', itemIndex, '') as string;
+              const dateTo = this.getNodeParameter('dateTo', itemIndex, '') as string;
+              if (dateTo) dateRangeParams.dateTo = dateTo;
+            }
+            const { startDate, endDate, totalDays } = resolveDateRange(dateRangeMode, dateRangeParams);
+            const chunks = chunkDateRange(startDate, endDate, totalDays);
 
-            const date = this.getNodeParameter('date', itemIndex, '') as string;
-            if (date && date.trim()) baseQs.date = date;
-
-            // Pagination
+            // Pagination with chunk iteration
             const returnAll = this.getNodeParameter('returnAll', itemIndex, true);
+
             if (returnAll) {
-              // Fetch all pages
               const allResults: IDataObject[] = [];
-              let currentPage = 1;
-              const pageSize = 1000; // Max page size for efficiency
-              let totalPages = 1;
-              let totalCount = 0;
 
-              do {
-                const qs = { ...baseQs, Page: currentPage, Size: pageSize };
-                const pageResponse = (await requestBackupRadar.call(this, 'GET', '/backups', {
-                  qs,
-                })) as IDataObject;
+              for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+                const chunk = chunks[chunkIndex];
+                const chunkQs = { ...baseQs };
+                if (chunk.date !== undefined) chunkQs.date = chunk.date;
+                chunkQs.HistoryDays = chunk.historyDays;
 
-                if (
-                  pageResponse &&
-                  'Results' in pageResponse &&
-                  Array.isArray(pageResponse.Results)
-                ) {
-                  allResults.push(...(pageResponse.Results as IDataObject[]));
-                  totalPages = (pageResponse.TotalPages as number) || 1;
-                  if (currentPage === 1) {
-                    totalCount = (pageResponse.Total as number) || allResults.length;
+                let currentPage = 1;
+                let totalPages = 1;
+
+                do {
+                  const qs = { ...chunkQs, Page: currentPage, Size: 1000 };
+                  const pageResponse = (await requestBackupRadar.call(this, 'GET', '/backups', {
+                    qs,
+                  })) as IDataObject;
+
+                  if (pageResponse && 'Results' in pageResponse && Array.isArray(pageResponse.Results)) {
+                    allResults.push(...(pageResponse.Results as IDataObject[]));
+                    totalPages = (pageResponse.TotalPages as number) || 1;
+                    currentPage++;
+                    if (currentPage <= totalPages) {
+                      await new Promise((resolve) => setTimeout(resolve, 500));
+                    }
+                  } else {
+                    break;
                   }
-                  currentPage++;
+                } while (currentPage <= totalPages);
 
-                  // Respect API rate limiting: 1 request per 0.5 seconds
-                  if (currentPage <= totalPages) {
-                    await new Promise((resolve) => setTimeout(resolve, 500));
-                  }
-                } else {
-                  break;
+                if (chunkIndex < chunks.length - 1) {
+                  await new Promise((resolve) => setTimeout(resolve, 500));
                 }
-              } while (currentPage <= totalPages);
+              }
 
-              // Create a response object with all results
+              const deduped = new Map<unknown, IDataObject>();
+              for (const item of allResults) {
+                deduped.set(item.Id, item);
+              }
+              const results = Array.from(deduped.values());
+
               response = {
-                Total: totalCount,
+                Total: results.length,
                 Page: 1,
-                PageSize: allResults.length,
+                PageSize: results.length,
                 TotalPages: 1,
-                Results: allResults,
+                Results: results,
               };
             } else {
-              // Fetch single page
-              const limit = this.getNodeParameter('limit', itemIndex, 50);
-              const qs = { ...baseQs, Page: 1, Size: limit };
-              response = await requestBackupRadar.call(this, 'GET', '/backups', { qs });
+              const limit = this.getNodeParameter('limit', itemIndex, 50) as number;
+              const allResults: IDataObject[] = [];
+
+              for (let chunkIndex = 0; chunkIndex < chunks.length && allResults.length < limit; chunkIndex++) {
+                const chunk = chunks[chunkIndex];
+                const chunkQs = { ...baseQs };
+                if (chunk.date !== undefined) chunkQs.date = chunk.date;
+                chunkQs.HistoryDays = chunk.historyDays;
+
+                let currentPage = 1;
+                let totalPages = 1;
+
+                do {
+                  const remaining = limit - allResults.length;
+                  const qs = { ...chunkQs, Page: currentPage, Size: Math.min(remaining, 1000) };
+                  const pageResponse = (await requestBackupRadar.call(this, 'GET', '/backups', {
+                    qs,
+                  })) as IDataObject;
+
+                  if (pageResponse && 'Results' in pageResponse && Array.isArray(pageResponse.Results)) {
+                    allResults.push(...(pageResponse.Results as IDataObject[]));
+                    totalPages = (pageResponse.TotalPages as number) || 1;
+                    currentPage++;
+                    if (allResults.length >= limit) break;
+                    if (currentPage <= totalPages) {
+                      await new Promise((resolve) => setTimeout(resolve, 500));
+                    }
+                  } else {
+                    break;
+                  }
+                } while (currentPage <= totalPages);
+
+                if (chunkIndex < chunks.length - 1 && allResults.length < limit) {
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                }
+              }
+
+              const deduped = new Map<unknown, IDataObject>();
+              for (const item of allResults) {
+                deduped.set(item.Id, item);
+              }
+              const results = Array.from(deduped.values()).slice(0, limit);
+
+              response = {
+                Total: results.length,
+                Page: 1,
+                PageSize: results.length,
+                TotalPages: 1,
+                Results: results,
+              };
             }
             break;
           }
