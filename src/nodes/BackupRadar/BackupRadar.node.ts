@@ -231,9 +231,9 @@ export class BackupRadar implements INodeType {
               };
             } else {
               const limit = this.getNodeParameter('limit', itemIndex, 50);
-              const allResults: IDataObject[] = [];
+              const deduped = new Map<unknown, IDataObject>();
 
-              for (let chunkIndex = 0; chunkIndex < chunks.length && allResults.length < limit; chunkIndex++) {
+              for (let chunkIndex = 0; chunkIndex < chunks.length && deduped.size < limit; chunkIndex++) {
                 const chunk = chunks[chunkIndex];
                 const chunkQs = { ...baseQs };
                 if (chunk.date !== undefined) chunkQs.date = chunk.date;
@@ -243,17 +243,19 @@ export class BackupRadar implements INodeType {
                 let totalPages = 1;
 
                 do {
-                  const remaining = limit - allResults.length;
+                  const remaining = limit - deduped.size;
                   const qs = { ...chunkQs, Page: currentPage, Size: Math.min(remaining, 1000) };
                   const pageResponse = (await requestBackupRadar.call(this, 'GET', '/backups', {
                     qs,
                   })) as IDataObject;
 
                   if (pageResponse && 'Results' in pageResponse && Array.isArray(pageResponse.Results)) {
-                    allResults.push(...(pageResponse.Results as IDataObject[]));
+                    for (const item of pageResponse.Results as IDataObject[]) {
+                      deduped.set(item.Id, item);
+                    }
                     totalPages = (pageResponse.TotalPages as number) || 1;
                     currentPage++;
-                    if (allResults.length >= limit) break;
+                    if (deduped.size >= limit) break;
                     if (currentPage <= totalPages) {
                       await new Promise((resolve) => setTimeout(resolve, 500));
                     }
@@ -262,15 +264,11 @@ export class BackupRadar implements INodeType {
                   }
                 } while (currentPage <= totalPages);
 
-                if (chunkIndex < chunks.length - 1 && allResults.length < limit) {
+                if (chunkIndex < chunks.length - 1 && deduped.size < limit) {
                   await new Promise((resolve) => setTimeout(resolve, 500));
                 }
               }
 
-              const deduped = new Map<unknown, IDataObject>();
-              for (const item of allResults) {
-                deduped.set(item.Id, item);
-              }
               const results = Array.from(deduped.values()).slice(0, limit);
 
               response = {
