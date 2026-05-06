@@ -100,6 +100,12 @@ export async function executeGetBackups(
         }
         totalPages = (pageResponse.TotalPages as number) || 1;
         currentPage++;
+        // returnAll=false: stop paging once the limit is satisfied. History
+        // from later pages of this chunk may be incomplete for IDs that happen
+        // to fall on those pages, but the outer chunk loop still continues so
+        // later chunks can merge history for IDs found on earlier pages.
+        // Use returnAll=true for fully-merged history across all pages.
+        if (limit !== null && deduped.size >= limit) break;
         if (currentPage <= totalPages) {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
