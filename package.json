@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-backupradar",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "BackupRadar integration for n8n community node.",
   "author": "Max Soukhomlinov <maxs@intellectit.com.au>",
   "license": "Apache-2.0",
