@@ -80,10 +80,15 @@ function addLocalDays(date: Date, days: number): Date {
 // Extract the calendar Y-M-D from an ISO-8601 string before the T, then
 // construct a local-midnight Date. Preserves the user's intended calendar
 // date regardless of server timezone or any UTC offset in the ISO string.
+// Rejects overflow dates that JS normalizes silently (e.g. 2026-02-31 → Mar 3).
 function parseLocalDate(iso: string): Date {
   const datePart = iso.split('T')[0];
   const [year, month, day] = datePart.split('-').map(Number);
-  return new Date(year, month - 1, day);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    throw new Error(`Invalid date: "${datePart}" does not exist in the calendar`);
+  }
+  return date;
 }
 
 export function resolveDateRange(
@@ -114,9 +119,6 @@ export function resolveDateRange(
     throw new Error(`Invalid dateFrom value: "${params.dateFrom}"`);
   }
   const endDate = params.dateTo ? parseLocalDate(params.dateTo) : now;
-  if (params.dateTo && Number.isNaN(endDate.getTime())) {
-    throw new Error(`Invalid dateTo value: "${params.dateTo}"`);
-  }
   if (localDaysBetween(startDate, endDate) < 0) {
     throw new Error('dateFrom must not be after dateTo');
   }

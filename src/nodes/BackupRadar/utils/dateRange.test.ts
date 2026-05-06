@@ -117,7 +117,13 @@ describe('resolveDateRange — dateRange', () => {
   it('throws when dateTo is invalid', () => {
     expect(() =>
       resolveDateRange('dateRange', { dateFrom: '2026-04-01', dateTo: 'not-a-date' }, NOW),
-    ).toThrow('Invalid dateTo value');
+    ).toThrow('does not exist in the calendar');
+  });
+
+  it('throws on overflow calendar date (2026-02-31)', () => {
+    expect(() =>
+      resolveDateRange('dateRange', { dateFrom: '2026-02-31' }, NOW),
+    ).toThrow('does not exist in the calendar');
   });
 });
 

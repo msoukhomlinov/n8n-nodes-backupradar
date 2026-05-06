@@ -100,10 +100,6 @@ export async function executeGetBackups(
         }
         totalPages = (pageResponse.TotalPages as number) || 1;
         currentPage++;
-        // Within a single chunk, each page has distinct backupIds (pagination =
-        // different records). If limit is hit, later pages can only be blocked by
-        // the size guard — no history merges are possible. Safe to stop early.
-        if (limit !== null && deduped.size >= limit) break;
         if (currentPage <= totalPages) {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
