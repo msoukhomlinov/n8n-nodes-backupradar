@@ -1,9 +1,5 @@
 import type { INodeProperties } from 'n8n-workflow';
 import { getBackupsOperationOption, getBackupsOperationFields } from './getBackups.operation.js';
-import {
-  getBackupsBrightGaugeOperationOption,
-  getBackupsBrightGaugeOperationFields,
-} from './getBackupsBrightGauge.operation.js';
 import { getBackupOperationOption, getBackupOperationFields } from './getBackup.operation.js';
 import {
   getBackupResultsOperationOption,
@@ -28,7 +24,6 @@ export const backupRadarNodeProperties: INodeProperties[] = [
     noDataExpression: true,
     options: [
       getBackupsOperationOption,
-      getBackupsBrightGaugeOperationOption,
       getBackupOperationOption,
       getBackupResultsOperationOption,
       getFiltersOperationOption,
@@ -39,7 +34,6 @@ export const backupRadarNodeProperties: INodeProperties[] = [
     default: 'getBackups',
   },
   ...getBackupsOperationFields,
-  ...getBackupsBrightGaugeOperationFields,
   ...getBackupOperationFields,
   ...getBackupResultsOperationFields,
   ...getFiltersOperationFields,
