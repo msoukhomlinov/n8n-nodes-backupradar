@@ -15,3 +15,7 @@ package-lock.json
 *.local
 .cursorrules
 
+# Claude / Superpowers — internal AI tooling artefacts
+.claude/
+docs/superpowers/
+
