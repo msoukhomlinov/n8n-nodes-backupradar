@@ -231,6 +231,7 @@ export class BackupRadar implements INodeType {
               };
             } else {
               const limit = this.getNodeParameter('limit', itemIndex, 50);
+              const pageSize = Math.min(limit, 1000);
               const deduped = new Map<unknown, IDataObject>();
 
               for (let chunkIndex = 0; chunkIndex < chunks.length && deduped.size < limit; chunkIndex++) {
@@ -243,8 +244,7 @@ export class BackupRadar implements INodeType {
                 let totalPages = 1;
 
                 do {
-                  const remaining = limit - deduped.size;
-                  const qs = { ...chunkQs, Page: currentPage, Size: Math.min(remaining, 1000) };
+                  const qs = { ...chunkQs, Page: currentPage, Size: pageSize };
                   const pageResponse = (await requestBackupRadar.call(this, 'GET', '/backups', {
                     qs,
                   })) as IDataObject;
