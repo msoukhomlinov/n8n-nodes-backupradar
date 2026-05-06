@@ -80,6 +80,13 @@ export function resolveDateRange(
   return { startDate, endDate, totalDays };
 }
 
+function toLocalDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export function chunkDateRange(
   startDate: Date | undefined,
   endDate: Date,
@@ -95,11 +102,11 @@ export function chunkDateRange(
   while (current < endDate) {
     const remainingDays = Math.ceil((endDate.getTime() - current.getTime()) / DAY_MS);
     const historyDays = Math.min(remainingDays, 31);
-    chunks.push({ date: current.toISOString().split('T')[0], historyDays });
+    chunks.push({ date: toLocalDateString(current), historyDays });
     current = new Date(current.getTime() + historyDays * DAY_MS);
   }
 
   return chunks.length > 0
     ? chunks
-    : [{ date: startDate.toISOString().split('T')[0], historyDays: 0 }];
+    : [{ date: toLocalDateString(startDate), historyDays: 0 }];
 }
