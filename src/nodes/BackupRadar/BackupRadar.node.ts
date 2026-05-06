@@ -15,6 +15,16 @@ import {
   chunkDateRange,
 } from './utils/dateRange.js';
 
+function mergeBackupHistory(existing: IDataObject, incoming: IDataObject): IDataObject {
+  const existingHistory = Array.isArray(existing.history) ? (existing.history as IDataObject[]) : [];
+  const incomingHistory = Array.isArray(incoming.history) ? (incoming.history as IDataObject[]) : [];
+  const historyByDate = new Map<unknown, IDataObject>();
+  for (const entry of [...existingHistory, ...incomingHistory]) {
+    historyByDate.set(entry.date, entry);
+  }
+  return { ...incoming, history: Array.from(historyByDate.values()) };
+}
+
 export class BackupRadar implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Backup Radar',
@@ -181,104 +191,59 @@ export class BackupRadar implements INodeType {
             // Pagination with chunk iteration
             const returnAll = this.getNodeParameter('returnAll', itemIndex, true);
 
-            if (returnAll) {
-              const allResults: IDataObject[] = [];
+            const deduped = new Map<unknown, IDataObject>();
+            const limit = returnAll ? null : this.getNodeParameter('limit', itemIndex, 50);
+            const pageSize = limit !== null ? Math.min(limit, 1000) : 1000;
 
-              for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-                const chunk = chunks[chunkIndex];
-                const chunkQs = { ...baseQs };
-                if (chunk.date !== undefined) chunkQs.date = chunk.date;
-                chunkQs.HistoryDays = chunk.historyDays;
+            for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+              const chunk = chunks[chunkIndex];
+              const chunkQs = { ...baseQs };
+              if (chunk.date !== undefined) chunkQs.date = chunk.date;
+              chunkQs.HistoryDays = chunk.historyDays;
 
-                let currentPage = 1;
-                let totalPages = 1;
+              let currentPage = 1;
+              let totalPages = 1;
 
-                do {
-                  const qs = { ...chunkQs, Page: currentPage, Size: 1000 };
-                  const pageResponse = (await requestBackupRadar.call(this, 'GET', '/backups', {
-                    qs,
-                  })) as IDataObject;
+              do {
+                const qs = { ...chunkQs, Page: currentPage, Size: pageSize };
+                const pageResponse = (await requestBackupRadar.call(this, 'GET', '/backups', {
+                  qs,
+                })) as IDataObject;
 
-                  if (pageResponse && 'Results' in pageResponse && Array.isArray(pageResponse.Results)) {
-                    allResults.push(...(pageResponse.Results as IDataObject[]));
-                    totalPages = (pageResponse.TotalPages as number) || 1;
-                    currentPage++;
-                    if (currentPage <= totalPages) {
-                      await new Promise((resolve) => setTimeout(resolve, 500));
-                    }
-                  } else {
-                    break;
-                  }
-                } while (currentPage <= totalPages);
-
-                if (chunkIndex < chunks.length - 1) {
-                  await new Promise((resolve) => setTimeout(resolve, 500));
-                }
-              }
-
-              const deduped = new Map<unknown, IDataObject>();
-              for (const item of allResults) {
-                deduped.set(item.backupId, item);
-              }
-              const results = Array.from(deduped.values());
-
-              response = {
-                Total: results.length,
-                Page: 1,
-                PageSize: results.length,
-                TotalPages: 1,
-                Results: results,
-              };
-            } else {
-              const limit = this.getNodeParameter('limit', itemIndex, 50);
-              const pageSize = Math.min(limit, 1000);
-              const deduped = new Map<unknown, IDataObject>();
-
-              for (let chunkIndex = 0; chunkIndex < chunks.length && deduped.size < limit; chunkIndex++) {
-                const chunk = chunks[chunkIndex];
-                const chunkQs = { ...baseQs };
-                if (chunk.date !== undefined) chunkQs.date = chunk.date;
-                chunkQs.HistoryDays = chunk.historyDays;
-
-                let currentPage = 1;
-                let totalPages = 1;
-
-                do {
-                  const qs = { ...chunkQs, Page: currentPage, Size: pageSize };
-                  const pageResponse = (await requestBackupRadar.call(this, 'GET', '/backups', {
-                    qs,
-                  })) as IDataObject;
-
-                  if (pageResponse && 'Results' in pageResponse && Array.isArray(pageResponse.Results)) {
-                    for (const item of pageResponse.Results as IDataObject[]) {
+                if (pageResponse && 'Results' in pageResponse && Array.isArray(pageResponse.Results)) {
+                  for (const item of pageResponse.Results as IDataObject[]) {
+                    if (deduped.has(item.backupId)) {
+                      deduped.set(item.backupId, mergeBackupHistory(deduped.get(item.backupId)!, item));
+                    } else if (limit === null || deduped.size < limit) {
                       deduped.set(item.backupId, item);
                     }
-                    totalPages = (pageResponse.TotalPages as number) || 1;
-                    currentPage++;
-                    if (deduped.size >= limit) break;
-                    if (currentPage <= totalPages) {
-                      await new Promise((resolve) => setTimeout(resolve, 500));
-                    }
-                  } else {
-                    break;
                   }
-                } while (currentPage <= totalPages);
-
-                if (chunkIndex < chunks.length - 1 && deduped.size < limit) {
-                  await new Promise((resolve) => setTimeout(resolve, 500));
+                  totalPages = (pageResponse.TotalPages as number) || 1;
+                  currentPage++;
+                  if (currentPage <= totalPages) {
+                    await new Promise((resolve) => setTimeout(resolve, 500));
+                  }
+                } else {
+                  break;
                 }
+              } while (currentPage <= totalPages);
+
+              if (chunkIndex < chunks.length - 1) {
+                await new Promise((resolve) => setTimeout(resolve, 500));
               }
-
-              const results = Array.from(deduped.values()).slice(0, limit);
-
-              response = {
-                Total: results.length,
-                Page: 1,
-                PageSize: results.length,
-                TotalPages: 1,
-                Results: results,
-              };
             }
+
+            const results = limit !== null
+              ? Array.from(deduped.values()).slice(0, limit)
+              : Array.from(deduped.values());
+
+            response = {
+              Total: results.length,
+              Page: 1,
+              PageSize: results.length,
+              TotalPages: 1,
+              Results: results,
+            };
             break;
           }
 
