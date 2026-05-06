@@ -55,3 +55,27 @@ export interface DateChunk {
   date: string | undefined;
   historyDays: number;
 }
+
+export function resolveDateRange(
+  mode: string,
+  params: DateRangeParams,
+  now: Date = new Date(),
+): DateRangeResult {
+  if (mode === 'preset') {
+    const days = PRESET_MAP[params.preset ?? 'today'] ?? 0;
+    if (days <= 31) return { startDate: undefined, endDate: now, totalDays: days };
+    return { startDate: new Date(now.getTime() - days * DAY_MS), endDate: now, totalDays: days };
+  }
+
+  if (mode === 'daysBack') {
+    const days = params.daysBack ?? 0;
+    if (days <= 31) return { startDate: undefined, endDate: now, totalDays: days };
+    return { startDate: new Date(now.getTime() - days * DAY_MS), endDate: now, totalDays: days };
+  }
+
+  // dateRange
+  const startDate = new Date(params.dateFrom!);
+  const endDate = params.dateTo ? new Date(params.dateTo) : now;
+  const totalDays = Math.max(0, Math.ceil((endDate.getTime() - startDate.getTime()) / DAY_MS));
+  return { startDate, endDate, totalDays };
+}
