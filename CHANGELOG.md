@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project adheres to Semantic Versioning.
 
+## [3.0.3] - 2026-07-09
+
+### Fixed
+- Widened `n8n-workflow` and `n8n-core` peer dependency ranges from `^1.41.0` to `*` so shared community-node installs can resolve `n8n-workflow` 2.x without peer conflicts ([#3](https://github.com/msoukhomlinov/n8n-nodes-backupradar/issues/3))
+
 ## [3.0.2] - 2026-05-06
 
 ### Performance
